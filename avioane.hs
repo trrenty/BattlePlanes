@@ -81,22 +81,22 @@ playRound board avioane coords = (attack board coords, removeDestroyedPlanes [fs
 attack :: Board -> Coord -> Board
 attack board (a, b) = replaceItem a board (notAtIndex b ((!!) board a))
 
-beginGame :: Board -> [Avion] -> IO () 
-beginGame board avioane = do 
-                            putStrLn "Atacati!"
-                            coord <- getLine
-                            let (newBoard, newPlanes, isHit) = playRound board avioane (inputToCoord coord)
-                            if isHit then putStrLn "Lovit!" else putStrLn "Ratat!"
+-- beginGame :: Board -> [Avion] -> IO () 
+-- beginGame board avioane = do 
+--                             putStrLn "Atacati!"
+--                             coord <- getLine
+--                             let (newBoard, newPlanes, isHit) = playRound board avioane (inputToCoord coord)
+--                             if isHit then putStrLn "Lovit!" else putStrLn "Ratat!"
 
-                            if length newPlanes < length avioane then putStrLn "Avion doborat!"
-                            else putStrLn  ""
+--                             if length newPlanes < length avioane then putStrLn "Avion doborat!"
+--                             else putStrLn  ""
 
-                            printMatrix2 newBoard newPlanes
+--                             printMatrix2 newBoard newPlanes
                             
-                            if length newPlanes == 0 then
-                                putStrLn "Gata!"
-                            else 
-                                beginGame newBoard newPlanes
+--                             if length newPlanes == 0 then
+--                                 putStrLn "Gata!"
+--                             else 
+--                                 beginGame newBoard newPlanes
 
 isPlaneDestroyed :: Board -> Avion -> Coord -> (Avion, Bool)
 isPlaneDestroyed board avion coord = if or [coord == coord' | coord' <- avion] == False then do
@@ -117,7 +117,9 @@ setPlane coord directie | directie == "sus" =  return [coord,(fst coord+1,snd co
                                                 (fst coord, snd coord-2), (fst coord -1, snd coord-2), (fst coord + 1, snd coord-2)]
                         | directie == "stanga" = return [coord,(fst coord+1,snd coord),(fst coord-1,snd coord),(fst coord,snd coord+1),(fst coord, snd coord-1),
                                                 (fst coord, snd coord+2), (fst coord-1, snd coord+2), (fst coord+1, snd coord+2)]
-                        | otherwise = return []
+                        | otherwise = do 
+                                        randomOrd <- getRandomOrientation
+                                        setPlane coord randomOrd
 
 invalidCoord :: Coord -> [Avion] -> Bool
 invalidCoord coord avioane = fst coord < 0 || fst coord > 9 || snd coord < 0 || snd coord > 9 || or [coord == coord' | avion <- avioane , coord' <- avion]
@@ -130,10 +132,10 @@ invalidPlane (x:xs) avioane = invalidCoord x avioane || invalidPlane xs avioane
 setPlanes :: Int -> [Avion] -> IO [Avion]
 setPlanes nrAvion avioanePlasate | nrAvion <= nrOfPlanes = do 
                                                                 putStrLn ("Introdu coordonata avionului " ++ (show nrAvion))
-                                                                coord <- getLine
+                                                                coord <- getInputCoord
                                                                 putStrLn ("Introdu orientarea avionului " ++ (show nrAvion))
                                                                 orientare <- getLine
-                                                                avion <- setPlane (inputToCoord coord) orientare
+                                                                avion <- setPlane coord orientare
                                                                 if invalidPlane avion avioanePlasate then 
                                                                     setPlanes nrAvion avioanePlasate
                                                                 else do 
@@ -141,8 +143,22 @@ setPlanes nrAvion avioanePlasate | nrAvion <= nrOfPlanes = do
                                                                       return (avion:planesList)
                                  | otherwise = return []
 
-inputToCoord :: String -> Coord
-inputToCoord ['(',x,',',y,')'] = ((digitToInt x), (digitToInt y))       
+inputToCoord :: String -> IO Coord
+inputToCoord ['(',x,',',y,')'] =  return ((digitToInt x), (digitToInt y))
+inputToCoord _ = return (-1,-1)
+
+getInputCoord :: IO Coord
+getInputCoord = do 
+                    coordIn <- getLine
+                    coord <- inputToCoord coordIn
+                    if (fst coord == -1) then do 
+                                                putStrLn "!!Coordonata invalida!!\n!!Introduceti o alta coordonata pls!!"
+                                                getInputCoord
+                    else return coord
+
+
+
+
 
 -- BOT RELATED BUSINESS
 
@@ -194,12 +210,24 @@ destroyUnfittingPlanes (avion:avioane) coord isHit | isHit = if or [coord == coo
                                                    | otherwise = if or [coord == coord' | coord' <- avion] then  destroyUnfittingPlanes avioane coord isHit
                                                                     else avion:destroyUnfittingPlanes avioane coord isHit
 
+destroyPlanesWithCoordsInList :: [Avion] -> [Coord] ->[Avion]
+destroyPlanesWithCoordsInList planes [] = planes
+destroyPlanesWithCoordsInList planes (coord:coords) = destroyPlanesWithCoordsInList (destroyUnfittingPlanes planes coord False) coords
+
 getRandomCoord :: [Coord] -> IO Coord
 getRandomCoord coords = do 
                     x <- randomRIO (0,9)
                     y <- randomRIO (0,9)
                     if or [(x,y) == coord | coord <- coords ] then getRandomCoord coords
                         else return (x,y)
+
+getRandomCoordButBetter :: [Coord] -> Int -> IO Coord
+getRandomCoordButBetter coords nrOfTries = do 
+                    x <- randomRIO (0,9)
+                    y <- randomRIO (0,9)
+                    planes <- getAllPossiblePlanes (x,y)
+                    if (length (destroyPlanesWithCoordsInList planes coords)) <= 0 && nrOfTries < 10 then getRandomCoordButBetter coords (nrOfTries+1)
+                        else getRandomCoord coords
 
 getRandomCoordOfPossiblePlanes :: [Avion] -> [Coord] -> IO Coord
 getRandomCoordOfPossiblePlanes avioane hitCoords = do 
@@ -237,39 +265,39 @@ setBotPlanes nrAvion avioanePlasate | nrAvion <= nrOfPlanes = do
                                                                       return (avion:planesList)
                                  | otherwise = return []
 
-beginGameBot :: Board -> [Avion] -> [Coord] -> [Avion]-> IO () 
-beginGameBot board avioane checkedSpots [] = do 
-                            putStrLn "Atacati!"
-                            coord <- getRandomCoord checkedSpots
-                            let (newBoard, newPlanes, isHit) = playRound board avioane coord
-                            if isHit then do 
-                                            putStrLn "Lovit!"
-                                            printMatrix2 newBoard newPlanes
-                                            possiblePlanes <- getAllPossiblePlanes coord
-                                            beginGameBot newBoard newPlanes (coord:checkedSpots) possiblePlanes
-                             else do 
-                                    putStrLn "Ratat!"
-                                    printMatrix2 newBoard newPlanes
-                                    beginGameBot newBoard newPlanes (coord:checkedSpots) []
+-- beginGameBot :: Board -> [Avion] -> [Coord] -> [Avion]-> IO () 
+-- beginGameBot board avioane checkedSpots [] = do 
+--                             putStrLn "Atacati!"
+--                             coord <- getRandomCoord checkedSpots
+--                             let (newBoard, newPlanes, isHit) = playRound board avioane coord
+--                             if isHit then do 
+--                                             putStrLn "Lovit!"
+--                                             printMatrix2 newBoard newPlanes
+--                                             possiblePlanes <- getAllPossiblePlanes coord
+--                                             beginGameBot newBoard newPlanes (coord:checkedSpots) possiblePlanes
+--                              else do 
+--                                     putStrLn "Ratat!"
+--                                     printMatrix2 newBoard newPlanes
+--                                     beginGameBot newBoard newPlanes (coord:checkedSpots) []
 
-beginGameBot board avioane checkedSpots possiblePlanes = do 
-                                                            putStrLn "Atacati!"
-                                                            coord <- getRandomCoordOfPossiblePlanes possiblePlanes checkedSpots
-                                                            let (newBoard, newPlanes, isHit) = playRound board avioane coord
-                                                            if isHit then putStrLn "Lovit!" else putStrLn "Ratat!"
+-- beginGameBot board avioane checkedSpots possiblePlanes = do 
+--                                                             putStrLn "Atacati!"
+--                                                             coord <- getRandomCoordOfPossiblePlanes possiblePlanes checkedSpots
+--                                                             let (newBoard, newPlanes, isHit) = playRound board avioane coord
+--                                                             if isHit then putStrLn "Lovit!" else putStrLn "Ratat!"
 
-                                                            if (length newPlanes < length avioane) && length newPlanes > 0 then 
-                                                                do 
-                                                                    putStrLn "Avion doborat!"
-                                                                    printMatrix2 newBoard newPlanes
-                                                                    beginGameBot newBoard newPlanes (coord:checkedSpots) []
-                                                             else if length newPlanes == 0 then do 
-                                                                    printMatrix2 newBoard newPlanes
-                                                                    putStrLn "Gata!"
+--                                                             if (length newPlanes < length avioane) && length newPlanes > 0 then 
+--                                                                 do 
+--                                                                     putStrLn "Avion doborat!"
+--                                                                     printMatrix2 newBoard newPlanes
+--                                                                     beginGameBot newBoard newPlanes (coord:checkedSpots) []
+--                                                              else if length newPlanes == 0 then do 
+--                                                                     printMatrix2 newBoard newPlanes
+--                                                                     putStrLn "Gata!"
 
-                                                                else do 
-                                                                        printMatrix2 newBoard newPlanes
-                                                                        beginGameBot newBoard newPlanes (coord:checkedSpots) (destroyUnfittingPlanes possiblePlanes coord isHit)
+--                                                                 else do 
+--                                                                         printMatrix2 newBoard newPlanes
+--                                                                         beginGameBot newBoard newPlanes (coord:checkedSpots) (destroyUnfittingPlanes possiblePlanes coord isHit)
 
 
 -- MAIN
@@ -278,8 +306,8 @@ beginHvsAI :: Board -> Board -> [Avion] -> [Avion] -> [Coord] -> [Avion]-> IO ()
 beginHvsAI hBoard aiBoard hPlanes aiPlanes checkedSpots [] = do 
                                                                 -- Human part
                                                                 putStrLn "Atacati!"
-                                                                coord <- getLine
-                                                                let (newBoard, newPlanes, isHit) = playRound aiBoard aiPlanes (inputToCoord coord)
+                                                                coord <- getInputCoord
+                                                                let (newBoard, newPlanes, isHit) = playRound aiBoard aiPlanes coord
                                                                 if isHit then putStrLn "Ati Lovit!" else putStrLn "Ati Ratat!"
 
                                                                 if length newPlanes < length aiPlanes then putStrLn "Ati doborat un avion!"
@@ -293,7 +321,9 @@ beginHvsAI hBoard aiBoard hPlanes aiPlanes checkedSpots [] = do
                                                                 else 
                                                                    do 
                                                                         putStrLn "Computerul ataca!"
-                                                                        coord2 <- getRandomCoord checkedSpots
+                                                                        coord2 <- getRandomCoordButBetter checkedSpots 0
+                                                                        putStrLn ("Bot coord:" ++ (show coord2))
+                                                                        -- putStrLn ("Planes:" ++([]))
                                                                         let (newBoard2, newPlanes2, isHit2) = playRound hBoard hPlanes coord2
                                                                         if isHit2 then do 
                                                                                         putStrLn "Computerul a Lovit!"
@@ -309,8 +339,8 @@ beginHvsAI hBoard aiBoard hPlanes aiPlanes checkedSpots [] = do
 beginHvsAI hBoard aiBoard hPlanes aiPlanes checkedSpots possiblePlanes = do 
                                                                             -- Human part
                                                                             putStrLn "Atacati!"
-                                                                            coord <- getLine
-                                                                            let (newBoard, newPlanes, isHit) = playRound aiBoard aiPlanes (inputToCoord coord)
+                                                                            coord <- getInputCoord
+                                                                            let (newBoard, newPlanes, isHit) = playRound aiBoard aiPlanes coord
                                                                             if isHit then putStrLn "Ati Lovit!" else putStrLn "Ati Ratat!"
 
                                                                             if length newPlanes < length aiPlanes then putStrLn "Ati doborat un avion!"
@@ -324,6 +354,8 @@ beginHvsAI hBoard aiBoard hPlanes aiPlanes checkedSpots possiblePlanes = do
                                                                             else 
                                                                                 do 
                                                                                     coord2 <- getRandomCoordOfPossiblePlanes possiblePlanes checkedSpots
+                                                                                    putStrLn ("Bot coord:" ++ (show coord2))
+                                                                                    -- putStrLn ("Planes:" ++(show possiblePlanes))
                                                                                     let (newBoard2, newPlanes2, isHit2) = playRound hBoard hPlanes coord2
                                                                                     if isHit2 then putStrLn "Computerul a Lovit!" else putStrLn "Computerul a Ratat!"
 
@@ -339,10 +371,13 @@ beginHvsAI hBoard aiBoard hPlanes aiPlanes checkedSpots possiblePlanes = do
 
                                                                                         else do 
                                                                                                 printMatrix2 newBoard2 newPlanes2
-                                                                                                beginHvsAI newBoard2 newBoard newPlanes2 newPlanes (coord2:checkedSpots) (destroyUnfittingPlanes possiblePlanes coord2 isHit)
+                                                                                                beginHvsAI newBoard2 newBoard newPlanes2 newPlanes (coord2:checkedSpots) (destroyUnfittingPlanes possiblePlanes coord2 isHit2)
 
                                                                                     
                                                                             
+
+
+
 
 
 
@@ -363,7 +398,4 @@ main = do
           avioaneAI <- setBotPlanes 1 []
           beginHvsAI initBoard initBoard avioaneOm avioaneAI [] []
           return()
-
-        
-
-                                  
+          
